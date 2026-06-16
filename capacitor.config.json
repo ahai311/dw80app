@@ -1,6 +1,6 @@
 {
   "appId": "com.uzhan.app",
-  "appName": "dw850",
+  "appName": "App",
   "webDir": "www",
   "android": {
     "allowMixedContent": true,
