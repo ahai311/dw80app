@@ -160,47 +160,12 @@ function verifyLauncherIconApplied() {
   console.log('apply-android-assets: launcher verify OK', size, 'bytes');
 }
 
-function isWebP(filePath) {
-  try {
-    const buf = Buffer.alloc(12);
-    const fd = fs.openSync(filePath, 'r');
-    fs.readSync(fd, buf, 0, 12, 0);
-    fs.closeSync(fd);
-    return buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP';
-  } catch { return false; }
-}
-
-function convertToPng(src) {
-  const tmpDst = src + '.converted.png';
-  const py = spawnSync(process.env.PYTHON_BIN || 'python3', [
-    '-c',
-    `from PIL import Image; img=Image.open("${src}").convert("RGB"); img.save("${tmpDst}", "PNG", optimize=True)`
-  ], { encoding: 'utf8' });
-  if (py.status === 0 && fs.existsSync(tmpDst)) {
-    fs.copyFileSync(tmpDst, src + '.png');
-    fs.unlinkSync(tmpDst);
-    return src + '.png';
-  }
-  return null;
-}
-
 function applySplash(splashPath) {
   if (!fs.existsSync(splashPath)) return false;
   if (iconSourceSize(splashPath) < 10_000) return false;
-  let actualSplash = splashPath;
-  if (isWebP(splashPath)) {
-    console.log('apply-android-assets: splash is WEBP, converting to PNG');
-    const converted = convertToPng(splashPath);
-    if (converted) {
-      actualSplash = converted;
-    } else {
-      console.warn('apply-android-assets: WEBP->PNG conversion failed, skipping splash');
-      return false;
-    }
-  }
   removeCapacitorDefaultSplashes();
   for (const dir of SPLASH_DRAWABLE_DIRS) {
-    copyIfExists(actualSplash, path.join(resRoot, dir, 'splash.png'));
+    copyIfExists(splashPath, path.join(resRoot, dir, 'splash.png'));
   }
   return true;
 }
