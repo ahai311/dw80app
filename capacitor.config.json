@@ -1,0 +1,20 @@
+{
+  "appId": "com.uzhan.app",
+  "appName": "App",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": true,
+    "backgroundColor": "#ffffffff",
+    "webContentsDebuggingEnabled": false,
+    "appendUserAgent": " UStationApp/1.0"
+  },
+  "server": {
+    "cleartext": false,
+    "androidScheme": "https",
+    "allowNavigation": [
+      "*"
+    ],
+    "hostname": "localhost",
+    "errorPath": "error.html"
+  }
+}
