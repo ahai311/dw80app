@@ -1,0 +1,17 @@
+node_modules/
+android/
+ios/
+.DS_Store
+*.log
+release.p12
+local.properties
+.idea/
+*.iml
+.capacitor/
+ustation-full.tar.gz
+setup.sh
+bootstrap.sh
+搭建教程.txt
+shell-scripts/
+workflows/
+app-display-name.json

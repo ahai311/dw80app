@@ -1,0 +1,20 @@
+{
+  "name": "ustation-app-shell",
+  "version": "2.0.0",
+  "private": true,
+  "description": "U-Station 纯 WebView 壳（Capacitor 仅生成 Android 工程，无 Cordova / 无 JS Bridge）",
+  "type": "module",
+  "scripts": {
+    "prepare": "node scripts/ensure-www.mjs && node scripts/ensure-bundled-assets.mjs",
+    "cap:init-android": "npx cap add android",
+    "patch:android": "node scripts/patch-strip-cordova.mjs && node scripts/patch-android-network.mjs && node scripts/patch-android-webview.mjs && node scripts/patch-android-gradle-deps.mjs && node scripts/finalize-android-production.mjs"
+  },
+  "dependencies": {
+    "@capacitor/core": "7.2.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "7.2.0",
+    "@capacitor/cli": "7.2.0",
+    "@capacitor/ios": "^7.2.0"
+  }
+}
