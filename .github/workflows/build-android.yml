@@ -1,61 +1,341 @@
-name: Build Android APK
+# 纯 WebView 壳（Capacitor 7 仅生成工程，无 Cordova）：workflow_dispatch → 签名 APK
+name: Build Android
 
 on:
   workflow_dispatch:
     inputs:
-      build_type:
-        description: 'Build type'
+      build_id:
+        description: U-Station build record id
+        required: false
+      target_url:
+        description: H5 target URL
         required: true
-        default: 'release'
-        type: choice
-        options:
-          - debug
-          - release
+      bundle_id:
+        description: Android applicationId
+        required: true
+      app_name:
+        description: App display name (ASCII fallback)
+        required: true
+      app_name_b64:
+        description: UTF-8 display name base64 (launcher label)
+        required: false
+      version_name:
+        description: versionName
+        required: true
+      version_code:
+        description: versionCode
+        required: true
+      platform_url:
+        description: U-Station API base (for assets + webhook)
+        required: true
+      callback_token:
+        description: app_builder callback token
+        required: true
+      icon_url:
+        description: optional icon path/url
+        required: false
+      splash_url:
+        description: optional splash path/url
+        required: false
+      square_icon_url:
+        description: optional square icon path/url (launcher fallback)
+        required: false
+      min_sdk:
+        description: Android minSdkVersion
+        required: false
+        default: "24"
+      target_sdk:
+        description: Android targetSdkVersion
+        required: false
+        default: "36"
+      compile_sdk:
+        description: Android compileSdkVersion
+        required: false
+        default: "36"
+      fix_apk:
+        description: run fix-apk-installable.py (Manifest/resources.arsc Store)
+        required: false
+        default: "true"
+      sign_v1:
+        description: apksigner V1 after zipalign
+        required: false
+        default: "true"
+      sign_v2:
+        description: apksigner V2
+        required: false
+        default: "true"
+      sign_v3:
+        description: apksigner V3
+        required: false
+        default: "true"
+      verify_apk:
+        description: run verify-apk-installable.mjs
+        required: false
+        default: "true"
+      check_production:
+        description: strict production verify (SDK/ABI checks)
+        required: false
+        default: "true"
 
-env:
-  KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-  KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-  KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-node@v4
         with:
+          node-version: '20'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
           java-version: '17'
-          distribution: 'temurin'
-          cache: gradle
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;35.0.0'
 
-      - name: Decode Keystore
+      - name: Install dependencies
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/release-keystore.jks
+          node scripts/ensure-www.mjs
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-      - name: Build APK
+      - name: Apply build config & assets
+        env:
+          APP_BUILDER_MIN_SDK: ${{ inputs.min_sdk }}
+          APP_BUILDER_TARGET_SDK: ${{ inputs.target_sdk }}
+          APP_BUILDER_COMPILE_SDK: ${{ inputs.compile_sdk }}
+          APP_BUILDER_GRADLE_V1_SIGNING: "false"
+          TARGET_URL: ${{ inputs.target_url }}
+          BUNDLE_ID: ${{ inputs.bundle_id }}
+          APP_NAME: ${{ inputs.app_name }}
+          APP_NAME_B64: ${{ inputs.app_name_b64 }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          PLATFORM_URL: ${{ inputs.platform_url }}
+          ICON_URL: ${{ inputs.icon_url }}
+          SPLASH_URL: ${{ inputs.splash_url }}
+          SQUARE_ICON_URL: ${{ inputs.square_icon_url }}
         run: |
-          chmod +x gradlew
-          if [ "${{ inputs.build_type }}" = "release" ]; then
-            ./gradlew assembleRelease
+          node scripts/apply-build-config.mjs
+          node scripts/ensure-bundled-assets.mjs
+          node scripts/download-assets.mjs || true
+
+      - name: Capacitor sync Android
+        env:
+          APP_BUILDER_MIN_SDK: ${{ inputs.min_sdk }}
+          APP_BUILDER_TARGET_SDK: ${{ inputs.target_sdk }}
+          APP_BUILDER_COMPILE_SDK: ${{ inputs.compile_sdk }}
+          APP_BUILDER_GRADLE_V1_SIGNING: "false"
+          TARGET_URL: ${{ inputs.target_url }}
+          BUNDLE_ID: ${{ inputs.bundle_id }}
+          APP_NAME: ${{ inputs.app_name }}
+          APP_NAME_B64: ${{ inputs.app_name_b64 }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          PLATFORM_URL: ${{ inputs.platform_url }}
+          ICON_URL: ${{ inputs.icon_url }}
+          SPLASH_URL: ${{ inputs.splash_url }}
+          SQUARE_ICON_URL: ${{ inputs.square_icon_url }}
+        run: |
+          rm -rf android
+          npx cap add android
+          npx cap sync android
+          test -f android/app/src/main/AndroidManifest.xml
+          test -f android/gradlew
+          node scripts/apply-build-config.mjs
+          node scripts/patch-strip-cordova.mjs
+          node scripts/patch-android-network.mjs
+          node scripts/patch-android-webview.mjs
+          node scripts/patch-android-gradle-deps.mjs
+
+      - name: Verify redirect-shell & target URL
+        env:
+          TARGET_URL: ${{ inputs.target_url }}
+        run: node scripts/verify-android-build.mjs
+
+      - name: Finalize production shell (before Gradle)
+        env:
+          TARGET_URL: ${{ inputs.target_url }}
+          APP_NAME: ${{ inputs.app_name }}
+          APP_NAME_B64: ${{ inputs.app_name_b64 }}
+          APP_BUILDER_MIN_SDK: ${{ inputs.min_sdk }}
+          APP_BUILDER_TARGET_SDK: ${{ inputs.target_sdk }}
+          APP_BUILDER_COMPILE_SDK: ${{ inputs.compile_sdk }}
+        run: node scripts/finalize-android-production.mjs
+
+      - name: Apply launcher & splash assets
+        env:
+          TARGET_URL: ${{ inputs.target_url }}
+          ICON_URL: ${{ inputs.icon_url }}
+          SPLASH_URL: ${{ inputs.splash_url }}
+          SQUARE_ICON_URL: ${{ inputs.square_icon_url }}
+          PLATFORM_URL: ${{ inputs.platform_url }}
+        run: |
+          python3 -m pip install --quiet Pillow || pip install --quiet Pillow
+          node scripts/ensure-bundled-assets.mjs
+          node scripts/download-assets.mjs
+          node scripts/apply-android-assets.mjs
+          if [ "${{ inputs.check_production }}" = "true" ]; then
+            CHECK_PRODUCTION_READY=1 node scripts/verify-android-build.mjs
           else
-            ./gradlew assembleDebug
+            node scripts/verify-android-build.mjs
           fi
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: apk-${{ github.run_number }}
-          path: |
-            app/build/outputs/apk/**/*.apk
-          retention-days: 30
+      - name: Decode keystore
+        run: |
+          if [ -z "${{ secrets.ANDROID_KEYSTORE_B64 }}" ]; then
+            echo "::error::ANDROID_KEYSTORE_B64 secret is empty — run 配置 GitHub in admin"
+            exit 1
+          fi
+          echo "${{ secrets.ANDROID_KEYSTORE_B64 }}" | base64 -d > release.p12
+          test -s release.p12
 
-      - name: Clean up keystore
-        if: always()
-        run: rm -f app/release-keystore.jks
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build signed APK
+        working-directory: android
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/release.p12
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -f ./gradlew || (echo "::error::android/gradlew missing — cap add android failed" && exit 1)
+          chmod +x ./gradlew
+          GRADLE_ARGS=(
+            clean assembleRelease --no-daemon
+            "-Pandroid.injected.signing.store.file=$KEYSTORE_PATH"
+            "-Pandroid.injected.signing.store.type=pkcs12"
+            "-Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD"
+            "-Pandroid.injected.signing.key.alias=$KEY_ALIAS"
+            "-Pandroid.injected.signing.key.password=$KEY_PASSWORD"
+          )
+          for attempt in 1 2 3 4 5; do
+            echo "Gradle attempt $attempt"
+            if ./gradlew "${GRADLE_ARGS[@]}"; then
+              exit 0
+            fi
+            echo "Gradle failed, retry in 20s..."
+            sleep 20
+          done
+          echo "::error::Gradle assembleRelease failed after 5 attempts"
+          exit 1
+
+      - name: Collect APK
+        id: apk
+        env:
+          FIX_APK: ${{ inputs.fix_apk }}
+          SIGN_V1: ${{ inputs.sign_v1 }}
+          SIGN_V2: ${{ inputs.sign_v2 }}
+          SIGN_V3: ${{ inputs.sign_v3 }}
+          VERIFY_APK: ${{ inputs.verify_apk }}
+        run: |
+          APK=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
+          if [ -z "$APK" ]; then
+            echo "::error::No APK found under android/app/build/outputs/apk/release"
+            exit 1
+          fi
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$APK")" >> "$GITHUB_OUTPUT"
+          ls -la "$APK"
+          WORK="$APK"
+          if [ "$FIX_APK" = "true" ]; then
+            python3 scripts/fix-apk-installable.py "$APK" "$APK.pack-fixed"
+            WORK="$APK.pack-fixed"
+          fi
+          NEED_RESIGN=false
+          if [ "$SIGN_V1" = "true" ] || [ "$SIGN_V2" = "true" ] || [ "$SIGN_V3" = "true" ]; then
+            NEED_RESIGN=true
+          fi
+          if [ "$NEED_RESIGN" = "true" ]; then
+            BT="$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -1)"
+            test -n "$BT" || (echo "::error::Android build-tools not found" && exit 1)
+            "$BT/zipalign" -p -f 4 "$WORK" "$APK.aligned"
+            V1_FLAG="true"
+            V2_FLAG="false"; V3_FLAG="false"
+            [ "$SIGN_V1" = "true" ] && V1_FLAG="true"
+            [ "$SIGN_V2" = "true" ] && V2_FLAG="true"
+            [ "$SIGN_V3" = "true" ] && V3_FLAG="true"
+            "$BT/apksigner" sign \
+              --ks "${{ github.workspace }}/release.p12" \
+              --ks-type pkcs12 \
+              --ks-key-alias "${{ secrets.ANDROID_KEY_ALIAS }}" \
+              --ks-pass "pass:${{ secrets.ANDROID_STORE_PASSWORD }}" \
+              --key-pass "pass:${{ secrets.ANDROID_KEY_PASSWORD }}" \
+              --v1-signing-enabled "$V1_FLAG" \
+              --v2-signing-enabled "$V2_FLAG" \
+              --v3-signing-enabled "$V3_FLAG" \
+              --out "$APK" "$APK.aligned"
+            rm -f "$APK.pack-fixed" "$APK.aligned"
+            "$BT/apksigner" verify --min-sdk-version 24 --verbose "$APK" || {
+              echo "::error::apksigner verify failed after sign"
+              exit 1
+            }
+          elif [ "$WORK" != "$APK" ]; then
+            cp -f "$WORK" "$APK"
+            rm -f "$APK.pack-fixed"
+          fi
+          FINAL_SIZE=$(stat -c%s "$APK")
+          if [ "$VERIFY_APK" = "true" ]; then
+            node scripts/verify-apk-installable.mjs "$APK"
+            node scripts/verify-apk-sdk.mjs "$APK"
+          fi
+          echo "packaging: target_sdk=${{ inputs.target_sdk }} fix=$FIX_APK sign_v1=$SIGN_V1 sign_v2=$SIGN_V2 sign_v3=$SIGN_V3"
+          echo "final_size=$FINAL_SIZE" >> "$GITHUB_OUTPUT"
+          echo "size=$FINAL_SIZE" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        id: rel
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v${{ inputs.version_name }}-${{ github.run_number }}
+          name: Android v${{ inputs.version_name }} (run ${{ github.run_number }})
+          files: ${{ steps.apk.outputs.path }}
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload APK to platform (public download)
+        if: success() && inputs.callback_token != ''
+        env:
+          PLATFORM_URL: ${{ inputs.platform_url }}
+          CALLBACK_TOKEN: ${{ inputs.callback_token }}
+          BUILD_ID: ${{ inputs.build_id }}
+          BUILD_PLATFORM: android
+          VERSION_NAME: ${{ inputs.version_name }}
+          RELEASE_TAG: android-v${{ inputs.version_name }}-${{ github.run_number }}
+          APK_PATH: ${{ steps.apk.outputs.path }}
+        run: node scripts/upload-apk-to-platform.mjs || echo "platform upload failed (non-fatal, use GitHub Release)"
+
+      - name: Notify platform (success)
+        if: success()
+        env:
+          PLATFORM_URL: ${{ inputs.platform_url }}
+          CALLBACK_TOKEN: ${{ inputs.callback_token }}
+          BUILD_ID: ${{ inputs.build_id }}
+          BUILD_PLATFORM: android
+          BUILD_STATUS: success
+          RELEASE_TAG: android-v${{ inputs.version_name }}-${{ github.run_number }}
+          DOWNLOAD_URL: https://github.com/${{ github.repository }}/releases/download/android-v${{ inputs.version_name }}-${{ github.run_number }}/${{ steps.apk.outputs.name }}
+          FILE_SIZE_BYTES: ${{ steps.apk.outputs.size }}
+        run: node scripts/notify-platform.mjs || true
+
+      - name: Notify platform (failure)
+        if: failure()
+        env:
+          PLATFORM_URL: ${{ inputs.platform_url }}
+          CALLBACK_TOKEN: ${{ inputs.callback_token }}
+          BUILD_ID: ${{ inputs.build_id }}
+          BUILD_PLATFORM: android
+          BUILD_STATUS: failed
+          BUILD_ERROR: Android workflow failed
+        run: node scripts/notify-platform.mjs || true
