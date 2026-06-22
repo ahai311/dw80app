@@ -179,7 +179,20 @@ jobs:
         run: |
           python3 -m pip install --quiet Pillow || pip install --quiet Pillow
           node scripts/ensure-bundled-assets.mjs
+          rm -f resources/icon.png resources/splash.png resources/square-icon.png
           node scripts/download-assets.mjs
+          python3 -c "
+          import glob, os
+          from PIL import Image
+          for f in glob.glob('resources/*.png'):
+              try:
+                  img = Image.open(f)
+                  if hasattr(img, 'format') and img.format == 'WEBP':
+                      print(f'Converting {f} from WEBP to PNG')
+                      img.convert('RGB').save(f, 'PNG', optimize=True)
+              except Exception as e:
+                  print(f'Skip {f}: {e}')
+          "
           node scripts/apply-android-assets.mjs
           if [ "${{ inputs.check_production }}" = "true" ]; then
             CHECK_PRODUCTION_READY=1 node scripts/verify-android-build.mjs
