@@ -179,7 +179,6 @@ jobs:
         run: |
           python3 -m pip install --quiet Pillow || pip install --quiet Pillow
           node scripts/ensure-bundled-assets.mjs
-          rm -f resources/icon.png resources/splash.png resources/square-icon.png
           node scripts/download-assets.mjs
           node scripts/apply-android-assets.mjs
           if [ "${{ inputs.check_production }}" = "true" ]; then
