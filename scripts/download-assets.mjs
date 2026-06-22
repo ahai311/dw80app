@@ -73,11 +73,7 @@ function useRepoAsset(name, minBytes = 4096) {
   return false;
 }
 
-let platform = (process.env.PLATFORM_URL || '').replace(/\/$/, '');
-// Ensure www prefix for SSL cert match
-if (platform && /^https?:\/\/dw850\.cc/i.test(platform) && !/www\./.test(platform)) {
-  platform = platform.replace('://dw850.cc', '://www.dw850.cc');
-}
+const platform = (process.env.PLATFORM_URL || '').replace(/\/$/, '');
 const skipRemote = !platform || isPrivateHost(platform);
 const iconUrl = skipRemote ? '' : absUrl(platform, process.env.ICON_URL);
 const splashUrl = skipRemote ? '' : absUrl(platform, process.env.SPLASH_URL);
@@ -87,10 +83,8 @@ if (skipRemote) {
   console.log('download-assets: skip remote (local/private PLATFORM_URL), prefer repo resources/');
 }
 
-let iconOk = false;
-let splashOk = false;
-if (!iconUrl && !squareUrl) iconOk = useRepoAsset('icon.png', 4096);
-if (!splashUrl) splashOk = useRepoAsset('splash.png', 10_000);
+let iconOk = false; // always re-download from platform
+let splashOk = false; // always re-download from platform
 if (useRepoAsset('square-icon.png', 4096)) {
   /* ok */
 } else if (!fs.existsSync(path.join(assetsDir, 'square-icon.png'))) {
