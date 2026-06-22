@@ -1,5 +1,6 @@
 /**
  * 将 resources/*.png 写入 Android 启动图标、自适应图标、启动图
+ * PATCHED: auto-convert WEBP masquerading as PNG
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,6 +14,46 @@ const MIPMAP_DENSITIES = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-
 const SPLASH_DRAWABLE_DIRS = ['drawable-nodpi', 'drawable'];
 const MIN_ICON_BYTES = 4096;
 
+function isWebp(filePath) {
+  try {
+    const buf = fs.readFileSync(filePath);
+    return buf.length > 4 && buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46;
+  } catch { return false; }
+}
+
+function convertWebpToPng(webpPath) {
+  const pngPath = webpPath.replace(/\.webp$/, '.png');
+  const tmpWebp = webpPath + '.tmp';
+  try {
+    fs.copyFileSync(webpPath, tmpWebp);
+    const py = spawnSync('python3', ['-c', `
+from PIL import Image
+img = Image.open("${tmpWebp}")
+img.convert("RGB").save("${webpPath.replace(/\.webp$/, '.real.png')}", "PNG")
+`], { encoding: 'utf8' });
+    if (py.status === 0) {
+      fs.copyFileSync(webpPath.replace(/\.webp$/, '.real.png'), pngPath);
+      fs.unlinkSync(webpPath.replace(/\.webp$/, '.real.png'));
+      console.log('apply-android-assets: converted WEBP -> PNG:', path.basename(webpPath));
+      fs.unlinkSync(tmpWebp);
+      return true;
+    }
+    fs.unlinkSync(tmpWebp);
+  } catch (e) {
+    console.warn('apply-android-assets: WEBP conversion failed:', e.message);
+  }
+  return false;
+}
+
+function ensureRealPng(filePath) {
+  if (!fs.existsSync(filePath)) return false;
+  if (isWebp(filePath)) {
+    console.log('apply-android-assets: detected WEBP in', path.basename(filePath));
+    return convertWebpToPng(filePath);
+  }
+  return true;
+}
+
 function copyIfExists(src, destPath) {
   if (!fs.existsSync(src)) return false;
   fs.mkdirSync(path.dirname(destPath), { recursive: true });
@@ -22,28 +63,19 @@ function copyIfExists(src, destPath) {
 }
 
 function iconSourceSize(iconPath) {
-  try {
-    return fs.statSync(iconPath).size;
-  } catch {
-    return 0;
-  }
+  try { return fs.statSync(iconPath).size; } catch { return 0; }
 }
 
-/** 删除 Capacitor sync 生成的默认 splash */
 function removeCapacitorDefaultSplashes() {
   if (!fs.existsSync(resRoot)) return;
   for (const name of fs.readdirSync(resRoot)) {
     if (!name.startsWith('drawable')) continue;
     if (name === 'drawable-nodpi') continue;
     const p = path.join(resRoot, name, 'splash.png');
-    if (fs.existsSync(p)) {
-      fs.unlinkSync(p);
-      console.log('apply-android-assets: removed default', path.relative(root, p));
-    }
+    if (fs.existsSync(p)) { fs.unlinkSync(p); console.log('apply-android-assets: removed default', path.relative(root, p)); }
   }
 }
 
-/** 删除 Capacitor 默认 launcher（避免 Python 失败时仍显示蓝 C 图标） */
 function removeCapacitorDefaultLaunchers() {
   if (!fs.existsSync(resRoot)) return;
   for (const name of fs.readdirSync(resRoot)) {
@@ -63,7 +95,6 @@ function removeCapacitorDefaultLaunchers() {
 function patchAdaptiveLauncherIcons(dominantColor) {
   const anydpi = path.join(resRoot, 'mipmap-anydpi-v26');
   fs.mkdirSync(anydpi, { recursive: true });
-
   const adaptiveXml = `<?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@mipmap/ic_launcher_background" />
@@ -74,15 +105,10 @@ function patchAdaptiveLauncherIcons(dominantColor) {
     fs.writeFileSync(path.join(anydpi, name), adaptiveXml, 'utf8');
     console.log('apply-android-assets:', path.relative(root, path.join(anydpi, name)));
   }
-
   const bgPath = path.join(resRoot, 'values/ic_launcher_background.xml');
   const color = dominantColor || '#6F4CFA';
   fs.mkdirSync(path.dirname(bgPath), { recursive: true });
-  fs.writeFileSync(
-    bgPath,
-    `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">${color}</color>\n</resources>\n`,
-    'utf8',
-  );
+  fs.writeFileSync(bgPath, `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">${color}</color>\n</resources>\n`, 'utf8');
 }
 
 function applyLauncherIconFallback(iconPath) {
@@ -100,13 +126,9 @@ function applyLauncherIconFallback(iconPath) {
 
 function applyLauncherIconWithPython(iconPath) {
   const pyScript = path.join(path.dirname(fileURLToPath(import.meta.url)), 'generate-adaptive-icons.py');
-  const py = spawnSync(process.env.PYTHON_BIN || 'python3', [pyScript, iconPath, resRoot], {
-    encoding: 'utf8',
-  });
+  const py = spawnSync(process.env.PYTHON_BIN || 'python3', [pyScript, iconPath, resRoot], { encoding: 'utf8' });
   if (py.status !== 0) {
-    const py2 = spawnSync(process.env.PYTHON_BIN || 'python', [pyScript, iconPath, resRoot], {
-      encoding: 'utf8',
-    });
+    const py2 = spawnSync(process.env.PYTHON_BIN || 'python', [pyScript, iconPath, resRoot], { encoding: 'utf8' });
     if (py2.status !== 0) {
       console.warn('apply-android-assets: generate-adaptive-icons failed', (py2.stderr || py.stderr || '').trim());
       return false;
@@ -118,11 +140,7 @@ function applyLauncherIconWithPython(iconPath) {
 
 function finishPythonIcon(stdout) {
   let meta = {};
-  try {
-    meta = JSON.parse(String(stdout || '').trim().split('\n').pop() || '{}');
-  } catch {
-    meta = {};
-  }
+  try { meta = JSON.parse(String(stdout || '').trim().split('\n').pop() || '{}'); } catch { meta = {}; }
   patchAdaptiveLauncherIcons(meta.dominantColor);
   console.log('apply-android-assets: adaptive icons', meta.dominantColor || '', `safe=${meta.safeScale || 0.72}`);
   return true;
@@ -136,7 +154,7 @@ function applyLauncherIcon(iconPath) {
   }
   removeCapacitorDefaultLaunchers();
   if (applyLauncherIconWithPython(iconPath)) return true;
-  console.warn('apply-android-assets: Python 失败，使用 Node 回退复制');
+  console.warn('apply-android-assets: Python failed, using Node fallback');
   return applyLauncherIconFallback(iconPath);
 }
 
@@ -144,17 +162,17 @@ function verifyLauncherIconApplied() {
   const probe = path.join(resRoot, 'mipmap-xxhdpi/ic_launcher_background.png');
   const size = fs.existsSync(probe) ? fs.statSync(probe).size : 0;
   if (size < MIN_ICON_BYTES) {
-    console.error(`::error::自定义 launcher 未写入 (${probe} ${size} bytes)`);
+    console.error(`::error::custom launcher not written (${probe} ${size} bytes)`);
     process.exit(1);
   }
   const anydpi = path.join(resRoot, 'mipmap-anydpi-v26/ic_launcher.xml');
   if (!fs.existsSync(anydpi)) {
-    console.error('::error::缺少 mipmap-anydpi-v26/ic_launcher.xml');
+    console.error('::error::missing mipmap-anydpi-v26/ic_launcher.xml');
     process.exit(1);
   }
   const xml = fs.readFileSync(anydpi, 'utf8');
   if (/@mipmap\/ic_launcher[^_"]/.test(xml)) {
-    console.error('::error::adaptive-icon 不得引用 @mipmap/ic_launcher（循环引用）');
+    console.error('::error::adaptive-icon must not reference @mipmap/ic_launcher');
     process.exit(1);
   }
   console.log('apply-android-assets: launcher verify OK', size, 'bytes');
@@ -181,11 +199,7 @@ function writeSplashColors() {
     }
   } else {
     fs.mkdirSync(path.dirname(colorsPath), { recursive: true });
-    fs.writeFileSync(
-      colorsPath,
-      `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n${block}</resources>\n`,
-      'utf8',
-    );
+    fs.writeFileSync(colorsPath, `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n${block}</resources>\n`, 'utf8');
   }
 }
 
@@ -218,7 +232,6 @@ function writeLaunchHasSplashBool(hasSplash) {
 function patchLaunchStyles(hasSplash) {
   const stylesPath = path.join(resRoot, 'values/styles.xml');
   if (!fs.existsSync(stylesPath)) return;
-
   let styles = fs.readFileSync(stylesPath, 'utf8');
   const launchBlock = hasSplash
     ? `    <style name="AppTheme.NoActionBarLaunch" parent="Theme.AppCompat.DayNight.NoActionBar">
@@ -231,14 +244,13 @@ function patchLaunchStyles(hasSplash) {
         <item name="android:statusBarColor">@android:color/white</item>
         <item name="android:navigationBarColor">@android:color/white</item>
     </style>`;
-
   if (styles.includes('AppTheme.NoActionBarLaunch')) {
     styles = styles.replace(/<style name="AppTheme\.NoActionBarLaunch"[\s\S]*?<\/style>/, launchBlock);
   } else {
     styles = styles.replace('</resources>', `${launchBlock}\n</resources>`);
   }
   if (/parent="Theme\.SplashScreen"/.test(styles)) {
-    console.error('::error::styles.xml 仍含 Theme.SplashScreen');
+    console.error('::error::styles.xml still contains Theme.SplashScreen');
     process.exit(1);
   }
   fs.writeFileSync(stylesPath, styles, 'utf8');
@@ -249,6 +261,10 @@ if (!fs.existsSync(resRoot)) {
   console.warn('apply-android-assets: res/ missing, skip');
   process.exit(0);
 }
+
+// Ensure splash.png is real PNG (not WEBP)
+ensureRealPng(path.join(resources, 'splash.png'));
+ensureRealPng(path.join(resources, 'icon.png'));
 
 const iconPath = [path.join(resources, 'icon.png'), path.join(resources, 'square-icon.png')].find(
   (p) => fs.existsSync(p) && iconSourceSize(p) >= MIN_ICON_BYTES,
@@ -269,7 +285,7 @@ if (hasIcon) {
 } else {
   const rawIcon = path.join(resources, 'icon.png');
   if (fs.existsSync(rawIcon) && iconSourceSize(rawIcon) >= MIN_ICON_BYTES) {
-    console.error('::error::resources/icon.png 存在但 launcher 写入失败');
+    console.error('::error::resources/icon.png exists but launcher write failed');
     process.exit(1);
   }
   console.warn('apply-android-assets: no valid icon.png — using Capacitor default launcher');
