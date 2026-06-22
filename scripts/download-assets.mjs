@@ -83,8 +83,10 @@ if (skipRemote) {
   console.log('download-assets: skip remote (local/private PLATFORM_URL), prefer repo resources/');
 }
 
-let iconOk = useRepoAsset('icon.png', 4096);
-let splashOk = useRepoAsset('splash.png', 10_000);
+let iconOk = false;
+let splashOk = false;
+if (!iconUrl && !squareUrl) iconOk = useRepoAsset('icon.png', 4096);
+if (!splashUrl) splashOk = useRepoAsset('splash.png', 10_000);
 if (useRepoAsset('square-icon.png', 4096)) {
   /* ok */
 } else if (!fs.existsSync(path.join(assetsDir, 'square-icon.png'))) {
