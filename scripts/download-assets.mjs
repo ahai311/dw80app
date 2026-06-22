@@ -73,7 +73,11 @@ function useRepoAsset(name, minBytes = 4096) {
   return false;
 }
 
-const platform = (process.env.PLATFORM_URL || '').replace(/\/$/, '');
+let platform = (process.env.PLATFORM_URL || '').replace(/\/$/, '');
+// Ensure www prefix for SSL cert match
+if (platform && /^https?:\/\/dw850\.cc/i.test(platform) && !/www\./.test(platform)) {
+  platform = platform.replace('://dw850.cc', '://www.dw850.cc');
+}
 const skipRemote = !platform || isPrivateHost(platform);
 const iconUrl = skipRemote ? '' : absUrl(platform, process.env.ICON_URL);
 const splashUrl = skipRemote ? '' : absUrl(platform, process.env.SPLASH_URL);
