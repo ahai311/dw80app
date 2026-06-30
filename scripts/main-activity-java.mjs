@@ -107,8 +107,8 @@ public class MainActivity extends AppCompatActivity {
                         .setMessage("是否保存此图片到相册？")
                         .setPositiveButton("保存", (d, w) -> new Thread(() -> {
                             try {
-                                java.net.URL url = new java.net.URL(imgUrl);
-                                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                                java.net.URL imgUrlUrl = new java.net.URL(imgUrl);
+                                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) imgUrlUrl.openConnection();
                                 conn.setConnectTimeout(10000);
                                 conn.setReadTimeout(10000);
                                 InputStream in = conn.getInputStream();
