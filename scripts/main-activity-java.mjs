@@ -25,7 +25,7 @@ import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.core.view.WindowCompat;
 
 public class MainActivity extends AppCompatActivity {
-    // shellPatchVersion=33 — splash SKIP top-right
+    // shellPatchVersion=34 — add shouldOverrideUrlLoading for tg/t.me/telegram.me/whatsapp/tel/mailto links
     private static final int MIN_CHROME_MAJOR = 80;
     private static final int SPLASH_MIN_MS = 600;
     private WebView webView;
@@ -254,6 +254,20 @@ public class MainActivity extends AppCompatActivity {
             s.setUserAgentString(ua + " UStationApp/1.0");
         }
         wv.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                if (url != null && (url.startsWith("tg:") || url.startsWith("t.me/") || url.startsWith("https://t.me/") || url.startsWith("telegram.me/") || url.startsWith("whatsapp:") || url.startsWith("tel:") || url.startsWith("mailto:"))) {
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                        startActivity(intent);
+                    } catch (Exception e) {
+                        // ignore
+                    }
+                    return true;
+                }
+                return false;
+            }
+
             @Override
             public void onPageFinished(WebView view, String url) {
                 dismissSplashWhenReady();
