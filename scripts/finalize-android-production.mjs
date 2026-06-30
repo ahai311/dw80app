@@ -8,7 +8,7 @@ import { getMainActivitySource } from './main-activity-java.mjs';
 import { resolveCiAppDisplayName, writeAppNameStrings } from './lib/app-display-name.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SHELL_PATCH_MARKER = 'shellPatchVersion=34';
+const SHELL_PATCH_MARKER = 'shellPatchVersion=33';
 
 const FORBIDDEN_JAVA = [
   'appendDebug',
