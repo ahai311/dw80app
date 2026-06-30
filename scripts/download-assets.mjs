@@ -83,13 +83,9 @@ if (skipRemote) {
   console.log('download-assets: skip remote (local/private PLATFORM_URL), prefer repo resources/');
 }
 
-let iconOk = false; // always re-download from platform
-let splashOk = false; // always re-download from platform
-if (useRepoAsset('square-icon.png', 4096)) {
-  /* ok */
-} else if (!fs.existsSync(path.join(assetsDir, 'square-icon.png'))) {
-  /* download below */
-}
+let iconOk = useRepoAsset('icon.png', 4096);
+let splashOk = useRepoAsset('splash.png', 10_000);
+let squareOk = useRepoAsset('square-icon.png', 4096);
 
 if (!iconOk && iconUrl && !isPrivateHost(iconUrl)) {
   iconOk = await download('icon', iconUrl, path.join(assetsDir, 'icon.png'));
@@ -97,8 +93,8 @@ if (!iconOk && iconUrl && !isPrivateHost(iconUrl)) {
 if (!iconOk && squareUrl && !isPrivateHost(squareUrl)) {
   iconOk = await download('icon-from-square', squareUrl, path.join(assetsDir, 'icon.png'));
 }
-if (squareUrl && !isPrivateHost(squareUrl)) {
-  await download('square-icon', squareUrl, path.join(assetsDir, 'square-icon.png'));
+if (!squareOk && squareUrl && !isPrivateHost(squareUrl)) {
+  squareOk = await download('square-icon', squareUrl, path.join(assetsDir, 'square-icon.png'));
 }
 if (!splashOk && splashUrl && !isPrivateHost(splashUrl)) {
   splashOk = await download('splash', splashUrl, path.join(assetsDir, 'splash.png'));
@@ -106,7 +102,9 @@ if (!splashOk && splashUrl && !isPrivateHost(splashUrl)) {
 
 if (!iconOk) iconOk = copyBundled('icon.png') || copyBundled('square-icon.png');
 if (!splashOk) splashOk = copyBundled('splash.png');
-if (!fs.existsSync(path.join(assetsDir, 'square-icon.png'))) copyBundled('square-icon.png');
+if (!squareOk && !fs.existsSync(path.join(assetsDir, 'square-icon.png'))) {
+  squareOk = copyBundled('square-icon.png');
+}
 
 if (!iconOk) console.warn('download-assets: no launcher icon');
 if (!splashOk) console.warn('download-assets: no splash');
