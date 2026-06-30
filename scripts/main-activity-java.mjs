@@ -14,6 +14,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.webkit.CookieManager;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -25,13 +27,15 @@ import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.core.view.WindowCompat;
 
 public class MainActivity extends AppCompatActivity {
-    // shellPatchVersion=34 — add shouldOverrideUrlLoading for tg/t.me/telegram.me/whatsapp/tel/mailto links
+    // shellPatchVersion=35 — add file chooser + shouldOverrideUrlLoading
     private static final int MIN_CHROME_MAJOR = 80;
     private static final int SPLASH_MIN_MS = 600;
+    private static final int FILE_CHOOSER_REQUEST = 1001;
     private WebView webView;
     private ImageView splashView;
     private TextView splashSkipButton;
     private FrameLayout rootLayout;
+    private ValueCallback<Uri[]> filePathCallback;
     private boolean launchedCustomTab = false;
     private boolean splashDismissed = false;
     private long splashShownAt = 0L;
@@ -253,6 +257,23 @@ public class MainActivity extends AppCompatActivity {
         if (ua != null && !ua.contains("UStationApp")) {
             s.setUserAgentString(ua + " UStationApp/1.0");
         }
+        wv.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, WebChromeClient.FileChooserParams fileChooserParams) {
+                if (filePathCallback != null) {
+                    filePathCallback.onReceiveValue(null);
+                }
+                filePathCallback = callback;
+                Intent intent = fileChooserParams.createIntent();
+                try {
+                    startActivityForResult(intent, FILE_CHOOSER_REQUEST);
+                } catch (Exception e) {
+                    filePathCallback = null;
+                    return false;
+                }
+                return true;
+            }
+        });
         wv.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
@@ -261,7 +282,6 @@ public class MainActivity extends AppCompatActivity {
                         Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
                         startActivity(intent);
                     } catch (Exception e) {
-                        // ignore
                     }
                     return true;
                 }
@@ -276,6 +296,24 @@ public class MainActivity extends AppCompatActivity {
                 );
             }
         });
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == FILE_CHOOSER_REQUEST) {
+            if (filePathCallback != null) {
+                Uri[] results = null;
+                if (resultCode == RESULT_OK && data != null) {
+                    String dataString = data.getDataString();
+                    if (dataString != null) {
+                        results = new Uri[]{Uri.parse(dataString)};
+                    }
+                }
+                filePathCallback.onReceiveValue(results);
+                filePathCallback = null;
+            }
+        }
     }
 
     @Override
