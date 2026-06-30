@@ -196,7 +196,7 @@ if (fs.existsSync(vcPath)) {
     if (vc.includes('viewDidAppear')) {
       // Add injection code inside existing viewDidAppear
       vc = vc.replace(
-        /(open override func viewDidAppear\(_ animated: Bool)\s*\{[\s\S]*?super\.viewDidAppear\(animated\))/,
+        /(open override func viewDidAppear\(_ animated: Bool\s*\)\s*\{[\s\S]*?super\.viewDidAppear\(animated\))/,
         `$1
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             if let webView = self.bridge?.webView {
