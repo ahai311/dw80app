@@ -2,6 +2,7 @@
 export function getMainActivitySource(pkg) {
   return `package ${pkg};
 
+import android.app.AlertDialog;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
@@ -38,7 +39,7 @@ import java.io.InputStream;
 import java.net.URL;
 
 public class MainActivity extends AppCompatActivity {
-    // shellPatchVersion=37 — file chooser + shouldOverrideUrlLoading + image save + download interception
+    // shellPatchVersion=38 — file chooser + shouldOverrideUrlLoading + image save + long-press save
     private static final int MIN_CHROME_MAJOR = 80;
     private static final int SPLASH_MIN_MS = 600;
     private static final int FILE_CHOOSER_REQUEST = 1001;
@@ -96,6 +97,59 @@ public class MainActivity extends AppCompatActivity {
             ViewGroup.LayoutParams.MATCH_PARENT
         ));
         configureWebView(webView);
+        webView.setOnLongClickListener(v -> {
+            android.webkit.WebView.HitTestResult result = webView.getHitTestResult();
+            if (result != null && (result.getType() == android.webkit.WebView.HitTestResult.IMAGE_TYPE || result.getType() == android.webkit.WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE)) {
+                String imgUrl = result.getExtra();
+                if (imgUrl != null && !imgUrl.isEmpty()) {
+                    new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("保存图片")
+                        .setMessage("是否保存此图片到相册？")
+                        .setPositiveButton("保存", (d, w) -> new Thread(() -> {
+                            try {
+                                java.net.URL url = new java.net.URL(imgUrl);
+                                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                                conn.setConnectTimeout(10000);
+                                conn.setReadTimeout(10000);
+                                InputStream in = conn.getInputStream();
+                                Bitmap bmp = BitmapFactory.decodeStream(in);
+                                in.close();
+                                conn.disconnect();
+                                if (bmp == null) {
+                                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "图片下载失败", Toast.LENGTH_SHORT).show());
+                                    return;
+                                }
+                                ContentValues values = new ContentValues();
+                                values.put(MediaStore.Images.Media.DISPLAY_NAME, "qr_" + System.currentTimeMillis() + ".png");
+                                values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                    values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES);
+                                    values.put(MediaStore.Images.Media.IS_PENDING, 1);
+                                }
+                                Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                                if (uri != null) {
+                                    java.io.OutputStream out = getContentResolver().openOutputStream(uri);
+                                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out);
+                                    out.flush();
+                                    out.close();
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                        values.clear();
+                                        values.put(MediaStore.Images.Media.IS_PENDING, 0);
+                                        getContentResolver().update(uri, values, null, null);
+                                    }
+                                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "图片已保存到相册", Toast.LENGTH_SHORT).show());
+                                }
+                            } catch (Exception e) {
+                                runOnUiThread(() -> Toast.makeText(MainActivity.this, "保存失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                            }
+                        }).start())
+                        .setNegativeButton("取消", null)
+                        .show();
+                    return true;
+                }
+            }
+            return false;
+        });
         webView.loadUrl(url);
     }
 
