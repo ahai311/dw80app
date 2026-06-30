@@ -38,7 +38,7 @@ import java.io.InputStream;
 import java.net.URL;
 
 public class MainActivity extends AppCompatActivity {
-    // shellPatchVersion=36 — file chooser + shouldOverrideUrlLoading + image save + download listener
+    // shellPatchVersion=37 — file chooser + shouldOverrideUrlLoading + image save + download interception
     private static final int MIN_CHROME_MAJOR = 80;
     private static final int SPLASH_MIN_MS = 600;
     private static final int FILE_CHOOSER_REQUEST = 1001;
@@ -303,7 +303,74 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 dismissSplashWhenReady();
                 view.evaluateJavascript(
-                    "(function(){try{localStorage.setItem('IS_NATIVE_APP','1');document.title='';}catch(e){}})();",
+                    "(function(){" +
+                    "try{localStorage.setItem('IS_NATIVE_APP','1');document.title='';}catch(e){}" +
+                    "var dcl=document.createElement.bind(document);" +
+                    "document.createElement=function(tag){" +
+                    "var el=dcl(tag);" +
+                    "if(tag.toLowerCase()==='a'){" +
+                    "var origClick=el.click.bind(el);" +
+                    "el.click=function(){" +
+                    "if(el.hasAttribute('download')){" +
+                    "var href=el.href||el.getAttribute('href')||'';" +
+                    "if(href.indexOf('blob:')===0){" +
+                    "var xhr=new XMLHttpRequest();" +
+                    "xhr.open('GET',href,true);" +
+                    "xhr.responseType='blob';" +
+                    "xhr.onload=function(){" +
+                    "var reader=new FileReader();" +
+                    "reader.onloadend=function(){" +
+                    "try{Android.saveImageFromBase64(reader.result);}catch(e){}" +
+                    "};" +
+                    "reader.readAsDataURL(xhr.response);" +
+                    "};" +
+                    "xhr.send();" +
+                    "return;" +
+                    "}" +
+                    "if(href.indexOf('data:image')===0){" +
+                    "try{Android.saveImageFromBase64(href);}catch(e){}" +
+                    "return;" +
+                    "}" +
+                    "if(href && href.indexOf('http')===0){" +
+                    "try{Android.saveImageUrl(href);}catch(e){}" +
+                    "return;" +
+                    "}" +
+                    "}" +
+                    "return origClick();" +
+                    "};" +
+                    "}" +
+                    "return el;" +
+                    "};" +
+                    "document.addEventListener('click',function(e){" +
+                    "var t=e.target;" +
+                    "while(t&&t!==document){" +
+                    "var a=t.tagName==='A'?t:t.closest('a');" +
+                    "if(a&&a.hasAttribute('download')){" +
+                    "e.preventDefault();e.stopPropagation();" +
+                    "var href=a.href||a.getAttribute('href')||'';" +
+                    "if(href.indexOf('blob:')===0){" +
+                    "var xhr=new XMLHttpRequest();" +
+                    "xhr.open('GET',href,true);" +
+                    "xhr.responseType='blob';" +
+                    "xhr.onload=function(){" +
+                    "var reader=new FileReader();" +
+                    "reader.onloadend=function(){" +
+                    "try{Android.saveImageFromBase64(reader.result);}catch(e){}" +
+                    "};" +
+                    "reader.readAsDataURL(xhr.response);" +
+                    "};" +
+                    "xhr.send();" +
+                    "}else if(href.indexOf('data:image')===0){" +
+                    "try{Android.saveImageFromBase64(href);}catch(e){}" +
+                    "}else if(href&&href.indexOf('http')===0){" +
+                    "try{Android.saveImageUrl(href);}catch(e){}" +
+                    "}" +
+                    "return false;" +
+                    "}" +
+                    "t=t.parentNode;" +
+                    "}" +
+                    "},true);" +
+                    "})());",
                     null
                 );
             }
