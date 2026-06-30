@@ -27,7 +27,7 @@ on:
         required: true
       platform_url:
         description: U-Station API base (assets)
-        required: false
+        required: true
       icon_url:
         description: optional icon path/url
         required: false
@@ -39,7 +39,7 @@ on:
         required: false
       callback_token:
         description: platform callback token
-        required: false
+        required: true
       min_sdk:
         required: false
         default: "24"
@@ -112,6 +112,7 @@ jobs:
           VERSION_NAME: ${{ inputs.version_name }}
           VERSION_CODE: ${{ inputs.version_code }}
         run: |
+          npm ls @capacitor/ios >/dev/null 2>&1 || npm install @capacitor/core@7.2.0 @capacitor/ios@7.2.0 --no-save
           rm -rf ios
           npx cap add ios
           npx cap sync ios
@@ -133,17 +134,54 @@ jobs:
           ls -la app-ios.ipa
           unzip -l app-ios.ipa | head -20
 
+      - name: Collect IPA
+        id: ipa
+        run: |
+          test -f app-ios.ipa
+          echo "path=app-ios.ipa" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename app-ios.ipa)" >> "$GITHUB_OUTPUT"
+          echo "size=$(stat -f%z app-ios.ipa)" >> "$GITHUB_OUTPUT"
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ios-v${{ inputs.version_name }}-${{ github.run_number }}
           name: iOS v${{ inputs.version_name }} (${{ github.run_number }})
-          files: app-ios.ipa
+          files: ${{ steps.ipa.outputs.path }}
           generate_release_notes: false
 
-      - name: Notify platform (optional)
+      - name: Upload IPA to platform (public download)
+        if: success() && inputs.callback_token != ''
+        env:
+          PLATFORM_URL: ${{ inputs.platform_url }}
+          CALLBACK_TOKEN: ${{ inputs.callback_token }}
+          BUILD_ID: ${{ inputs.build_id }}
+          BUILD_PLATFORM: ios
+          VERSION_NAME: ${{ inputs.version_name }}
+          RELEASE_TAG: ios-v${{ inputs.version_name }}-${{ github.run_number }}
+          APK_PATH: ${{ steps.ipa.outputs.path }}
+        run: node scripts/upload-apk-to-platform.mjs || echo "platform upload failed (non-fatal, use GitHub Release)"
+
+      - name: Notify platform (success)
         if: success()
         env:
           PLATFORM_URL: ${{ inputs.platform_url }}
-          CALLBACK_TOKEN: ${{ secrets.APP_CALLBACK_TOKEN || '' }}
+          CALLBACK_TOKEN: ${{ inputs.callback_token }}
+          BUILD_ID: ${{ inputs.build_id }}
+          BUILD_PLATFORM: ios
+          BUILD_STATUS: success
+          RELEASE_TAG: ios-v${{ inputs.version_name }}-${{ github.run_number }}
+          DOWNLOAD_URL: https://github.com/${{ github.repository }}/releases/download/ios-v${{ inputs.version_name }}-${{ github.run_number }}/${{ steps.ipa.outputs.name }}
+          FILE_SIZE_BYTES: ${{ steps.ipa.outputs.size }}
+        run: node scripts/notify-platform.mjs || true
+
+      - name: Notify platform (failure)
+        if: failure()
+        env:
+          PLATFORM_URL: ${{ inputs.platform_url }}
+          CALLBACK_TOKEN: ${{ inputs.callback_token }}
+          BUILD_ID: ${{ inputs.build_id }}
+          BUILD_PLATFORM: ios
+          BUILD_STATUS: failed
+          BUILD_ERROR: iOS workflow failed
         run: node scripts/notify-platform.mjs || true
