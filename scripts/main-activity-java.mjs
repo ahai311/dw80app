@@ -255,6 +255,20 @@ public class MainActivity extends AppCompatActivity {
         }
         wv.setWebViewClient(new WebViewClient() {
             @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                if (url != null && (url.startsWith("tg:") || url.startsWith("t.me/") || url.startsWith("https://t.me/") || url.startsWith("telegram.me/") || url.startsWith("whatsapp:") || url.startsWith("tel:") || url.startsWith("mailto:"))) {
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                        startActivity(intent);
+                    } catch (Exception e) {
+                        // ignore
+                    }
+                    return true;
+                }
+                return false;
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 dismissSplashWhenReady();
                 view.evaluateJavascript(
