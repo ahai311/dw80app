@@ -118,6 +118,9 @@ jobs:
           npx cap sync ios
           test -d ios/App
 
+      - name: Patch iOS download & image save
+        run: node scripts/patch-ios-download.mjs
+
       - name: Verify iOS shell
         env:
           TARGET_URL: ${{ inputs.target_url }}
