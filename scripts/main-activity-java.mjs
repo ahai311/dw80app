@@ -2,11 +2,17 @@
 export function getMainActivitySource(pkg) {
   return `package ${pkg};
 
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Environment;
+import android.provider.MediaStore;
+import android.util.Base64;
 import android.util.TypedValue;
 import android.net.Uri;
 import android.os.Bundle;
@@ -14,6 +20,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -22,12 +29,16 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.core.view.WindowCompat;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.URL;
 
 public class MainActivity extends AppCompatActivity {
-    // shellPatchVersion=35 — add file chooser + shouldOverrideUrlLoading
+    // shellPatchVersion=36 — file chooser + shouldOverrideUrlLoading + image save + download listener
     private static final int MIN_CHROME_MAJOR = 80;
     private static final int SPLASH_MIN_MS = 600;
     private static final int FILE_CHOOSER_REQUEST = 1001;
@@ -257,6 +268,7 @@ public class MainActivity extends AppCompatActivity {
         if (ua != null && !ua.contains("UStationApp")) {
             s.setUserAgentString(ua + " UStationApp/1.0");
         }
+        wv.addJavascriptInterface(new WebAppInterface(), "Android");
         wv.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, WebChromeClient.FileChooserParams fileChooserParams) {
@@ -296,6 +308,86 @@ public class MainActivity extends AppCompatActivity {
                 );
             }
         });
+    }
+
+    public class WebAppInterface {
+        @JavascriptInterface
+        public void saveImageFromBase64(String base64Data) {
+            try {
+                String pure = base64Data;
+                if (pure.contains(",")) {
+                    pure = pure.substring(pure.indexOf(",") + 1);
+                }
+                byte[] bytes = Base64.decode(pure, Base64.DEFAULT);
+                Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                if (bmp == null) {
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "图片解码失败", Toast.LENGTH_SHORT).show());
+                    return;
+                }
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Images.Media.DISPLAY_NAME, "qr_" + System.currentTimeMillis() + ".png");
+                values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES);
+                    values.put(MediaStore.Images.Media.IS_PENDING, 1);
+                }
+                Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                if (uri != null) {
+                    java.io.OutputStream out = getContentResolver().openOutputStream(uri);
+                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out);
+                    out.flush();
+                    out.close();
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        values.clear();
+                        values.put(MediaStore.Images.Media.IS_PENDING, 0);
+                        getContentResolver().update(uri, values, null, null);
+                    }
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "图片已保存到相册", Toast.LENGTH_SHORT).show());
+                }
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "保存失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+            }
+        }
+
+        @JavascriptInterface
+        public void saveImageUrl(String imageUrl) {
+            try {
+                java.net.URL url = new java.net.URL(imageUrl);
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                InputStream in = conn.getInputStream();
+                Bitmap bmp = BitmapFactory.decodeStream(in);
+                in.close();
+                conn.disconnect();
+                if (bmp == null) {
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "图片下载失败", Toast.LENGTH_SHORT).show());
+                    return;
+                }
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Images.Media.DISPLAY_NAME, "qr_" + System.currentTimeMillis() + ".png");
+                values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES);
+                    values.put(MediaStore.Images.Media.IS_PENDING, 1);
+                }
+                Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                if (uri != null) {
+                    java.io.OutputStream out = getContentResolver().openOutputStream(uri);
+                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out);
+                    out.flush();
+                    out.close();
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        values.clear();
+                        values.put(MediaStore.Images.Media.IS_PENDING, 0);
+                        getContentResolver().update(uri, values, null, null);
+                    }
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "图片已保存到相册", Toast.LENGTH_SHORT).show());
+                }
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "保存失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+            }
+        }
     }
 
     @Override

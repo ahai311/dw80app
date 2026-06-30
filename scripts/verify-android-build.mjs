@@ -9,7 +9,7 @@ import { resolveTargetSdkLevels } from './lib/resolve-target-sdk.mjs';
 import { resolveCiAppDisplayName } from './lib/app-display-name.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SHELL_PATCH_MARKER = 'shellPatchVersion=35';
+const SHELL_PATCH_MARKER = 'shellPatchVersion=36';
 const targetUrl = normalizeTargetUrl(
   process.env.TARGET_URL || process.env.APP_TARGET_URL,
   'https://example.com/',
